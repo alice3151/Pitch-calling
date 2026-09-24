@@ -452,4 +452,8 @@ show_cols = [c for c in [
     "RelSpeed", "SpinRate", "InducedVertBreak", "HorzBreak", "Extension",
     "PlateLocSide", "PlateLocHeight", "VAA", "ActualZone",
 ] if c in candidates.columns]
-st.dataframe(candidates[show_cols].tail(100), use_container_width=True, hide_ind
+st.dataframe(
+    candidates[show_cols].tail(100),
+    use_container_width=True,
+    hide_index=True
+)
