@@ -1,11 +1,9 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
 
 st.set_page_config(page_title="Keio Pitch Calling Support", layout="wide")
-
 DATA_FILE = Path(__file__).parent / "trackman.xlsx"
 
 TEAM_NAMES = {
@@ -16,130 +14,101 @@ TEAM_NAMES = {
     "WAS_EDA": "Waseda University",
     "HOS_HOS": "Hosei University",
 }
-
 TEAM_ORDER = ["KEI_KEI", "RIK", "MEI_MEI", "TOK", "WAS_EDA", "HOS_HOS"]
 
 
+def clean_text(x):
+    return "" if pd.isna(x) else str(x).strip()
+
+
 def valid_person_name(x):
-    if pd.isna(x):
-        return False
-    s = str(x).strip()
-    # TrackMan names in this file are "First, Last".
+    s = clean_text(x)
     return bool(s) and "," in s and not s.isdigit()
 
 
 def valid_numeric_id(x):
-    if pd.isna(x):
-        return False
-    s = str(x).strip()
+    s = clean_text(x)
     return s.isdigit()
 
 
 @st.cache_data
 def load_data():
-    sheets = pd.ExcelFile(DATA_FILE).sheet_names
+    xl = pd.ExcelFile(DATA_FILE)
     raw = []
-
-    # Read all sheets first. We need the valid rows from other games to
-    # repair the malformed Catcher columns in a few September sheets.
-    for sheet in sheets:
+    for sheet in xl.sheet_names:
         try:
             x = pd.read_excel(DATA_FILE, sheet_name=sheet)
             if "Pitcher" in x.columns and "Catcher" in x.columns:
                 x["SourceSheet"] = sheet
                 raw.append(x)
         except Exception:
-            continue
-
+            pass
     df = pd.concat(raw, ignore_index=True)
 
-    # ---------- Build global person registries from valid rows ----------
+    # ---- Repair malformed catcher fields using valid ID/name pairs ----
     catcher_by_id = {}
     catcher_team_by_id = {}
     for _, r in df.iterrows():
-        c = r.get("Catcher")
-        cid = r.get("CatcherId")
-        team = r.get("CatcherTeam")
+        c, cid, team = r.get("Catcher"), r.get("CatcherId"), r.get("CatcherTeam")
         if valid_person_name(c) and valid_numeric_id(cid):
             key = str(int(float(cid)))
-            catcher_by_id.setdefault(key, c)
-            if pd.notna(team):
-                catcher_team_by_id.setdefault(key, str(team).strip())
+            catcher_by_id.setdefault(key, clean_text(c))
+            if clean_text(team):
+                catcher_team_by_id.setdefault(key, clean_text(team))
 
-    # ---------- Repair Catcher fields ----------
-    # Some sheets have a shifted/corrupted Catcher block:
-    # Catcher=<CatcherId>, CatcherId=<ThrowHand>, CatcherThrows=<Team>,
-    # CatcherTeam=<UUID>. In those rows, recover the catcher name from the
-    # global ID registry.
-    repaired_catcher = []
-    repaired_catcher_id = []
-    repaired_catcher_team = []
-
+    fixed_c, fixed_id, fixed_team = [], [], []
     for _, r in df.iterrows():
-        c = r.get("Catcher")
-        cid = r.get("CatcherId")
-        cteam = r.get("CatcherTeam")
-
+        c, cid, cteam = r.get("Catcher"), r.get("CatcherId"), r.get("CatcherTeam")
         if valid_person_name(c) and valid_numeric_id(cid):
-            repaired_catcher.append(c)
-            repaired_catcher_id.append(str(int(float(cid))))
-            repaired_catcher_team.append(str(cteam).strip() if pd.notna(cteam) else "")
-            continue
-
-        # Corrupted pattern observed in 2026-09 sheets.
+            fixed_c.append(clean_text(c)); fixed_id.append(str(int(float(cid))))
+            fixed_team.append(clean_text(cteam)); continue
         if valid_numeric_id(c):
-            inferred_id = str(int(float(c)))
-            inferred_name = catcher_by_id.get(inferred_id)
-            inferred_team = catcher_team_by_id.get(inferred_id)
+            key = str(int(float(c)))
+            if key in catcher_by_id:
+                fixed_c.append(catcher_by_id[key]); fixed_id.append(key)
+                fixed_team.append(catcher_team_by_id.get(key, "")); continue
+        fixed_c.append(""); fixed_id.append(""); fixed_team.append("")
 
-            if inferred_name:
-                repaired_catcher.append(inferred_name)
-                repaired_catcher_id.append(inferred_id)
-                repaired_catcher_team.append(
-                    inferred_team or (
-                        str(r.get("CatcherThrows")).strip()
-                        if pd.notna(r.get("CatcherThrows")) else ""
-                    )
-                )
-                continue
+    df["Catcher"], df["CatcherId"], df["CatcherTeam"] = fixed_c, fixed_id, fixed_team
 
-        # Unknown / unusable catcher row: keep blank rather than displaying an ID.
-        repaired_catcher.append("")
-        repaired_catcher_id.append("")
-        repaired_catcher_team.append("")
-
-    df["Catcher"] = repaired_catcher
-    df["CatcherId"] = repaired_catcher_id
-    df["CatcherTeam"] = repaired_catcher_team
-
-    # ---------- Normalize core columns ----------
-    for c in [
-        "Pitcher", "PitcherId", "PitcherTeam",
-        "Catcher", "CatcherId", "CatcherTeam",
-        "Batter", "BatterId", "BatterTeam", "BatterSide",
-        "TaggedPitchType", "AutoPitchType", "PitchCall",
-        "PlayResult", "RunnerState",
-    ]:
+    core = [
+        "Pitcher", "PitcherId", "PitcherTeam", "Catcher", "CatcherId", "CatcherTeam",
+        "Batter", "BatterId", "BatterTeam", "BatterSide", "TaggedPitchType",
+        "AutoPitchType", "PitchCall", "PlayResult", "RunnerState", "GameID",
+        "PitchUID", "PlayID", "Top/Bottom", "Inning", "PAofInning", "PitchofPA",
+    ]
+    for c in core:
         if c in df.columns:
-            df[c] = df[c].fillna("").astype(str).str.strip()
+            df[c] = df[c].map(clean_text)
 
     df["PitchType"] = df["TaggedPitchType"].where(
         df["TaggedPitchType"].ne(""), df["AutoPitchType"]
     )
 
     for c in ["Balls", "Strikes", "PitchofPA"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-
+        df[c] = pd.to_numeric(df[c], errors="coerce")
     df["Balls"] = df["Balls"].fillna(0).astype(int)
     df["Strikes"] = df["Strikes"].fillna(0).astype(int)
+    df["PitchofPA"] = df["PitchofPA"].fillna(0).astype(int)
 
-    # Keep only rows with a valid pitcher/catcher relationship.
-    df = df[
-        df["Pitcher"].map(valid_person_name)
-        & df["Catcher"].map(valid_person_name)
-    ].copy()
+    # Actual location -> same 3x3 grid used by the UI.
+    if "PlateLocSide" in df.columns and "PlateLocHeight" in df.columns:
+        side = pd.to_numeric(df["PlateLocSide"], errors="coerce")
+        height = pd.to_numeric(df["PlateLocHeight"], errors="coerce")
+        col = np.select([side < -0.23, side <= 0.23], ["Inner", "Middle"], default="Outer")
+        row = np.select([height < 2.15, height <= 3.15], ["Low", "Middle"], default="High")
+        df["ActualZone"] = np.where(side.notna() & height.notna(), row + "-" + col, "Unknown")
+    else:
+        df["ActualZone"] = "Unknown"
 
+    # A PA is uniquely identified by game + inning half + PA number.
+    df["PAKey"] = (
+        df["GameID"].astype(str) + "|" + df["Inning"].astype(str) + "|" +
+        df["Top/Bottom"].astype(str) + "|" + df["PAofInning"].astype(str)
+    )
+
+    # Keep only rows where pitcher/catcher identity is trustworthy.
+    df = df[df["Pitcher"].map(valid_person_name) & df["Catcher"].map(valid_person_name)].copy()
     return df
 
 
@@ -154,156 +123,192 @@ def finish_count(balls, strikes, pitch_call):
     pc = str(pitch_call)
     if pc in {"InPlay", "HitByPitch"}:
         return None
-    if pc == "BallCalled" or "Ball" == pc:
+    if pc == "BallCalled" or pc == "Ball":
         return None if balls >= 3 else (balls + 1, strikes)
     if pc in {"StrikeCalled", "StrikeSwinging"}:
         return None if strikes >= 2 else (balls, strikes + 1)
     if "Foul" in pc:
-        # With two strikes, a normal foul does not change the count.
-        # Otherwise it adds one strike.
         return (balls, strikes) if strikes >= 2 else (balls, strikes + 1)
     if "Strike" in pc:
         return None if strikes >= 2 else (balls, strikes + 1)
     return balls, strikes
 
 
-def zone_label(side, height):
-    try:
-        s, h = float(side), float(height)
-    except (TypeError, ValueError):
-        return "Unknown"
-    col = "Inner" if s < -0.23 else ("Middle" if s <= 0.23 else "Outer")
-    row = "Low" if h < 2.15 else ("Middle" if h <= 3.15 else "High")
-    return f"{row}-{col}"
+def normalize_side(x):
+    s = clean_text(x).lower()
+    if s.startswith("r"):
+        return "Right"
+    if s.startswith("l"):
+        return "Left"
+    return "Unknown"
+
+
+def result_label(pc):
+    return {
+        "BallCalled": "ボール",
+        "StrikeCalled": "見逃しストライク",
+        "StrikeSwinging": "空振り",
+        "FoulBall": "ファウル",
+        "InPlay": "インプレー",
+        "HitByPitch": "死球",
+    }.get(str(pc), str(pc) if clean_text(pc) else "その他")
+
+
+def history_match_score(row, history):
+    """How many most-recent pitches in the live PA match this historical PA?"""
+    if not history:
+        return 0
+    hist = history[-len(history):]
+    n = min(len(hist), int(row["PitchofPA"]) - 1)
+    if n <= 0:
+        return -1
+    # This function is not used for row-by-row matching; kept for clarity.
+    return n
+
+
+def get_candidate_data(base, current_b, current_s, history):
+    """Hierarchical next-pitch search.
+
+    1) Same pitcher/catcher + handedness + current count + exact prior sequence
+    2) Same + current count + most recent prior pitch
+    3) Same + current count + handedness
+    4) Same + handedness
+    """
+    count_df = base[base["Balls"].eq(current_b) & base["Strikes"].eq(current_s)].copy()
+    if count_df.empty:
+        count_df = base.copy()
+
+    # If there is live history, find historical PAs whose preceding pitches match
+    # the same pitch type + result. Zone is used when available, but not required,
+    # so the model does not collapse when the sample is small.
+    if history:
+        seq = []
+        for _, r in count_df.iterrows():
+            pa = base[base["PAKey"].eq(r["PAKey"])].sort_values("PitchofPA")
+            if pa.empty or int(r["PitchofPA"]) <= len(history):
+                continue
+            preceding = pa[pa["PitchofPA"] < r["PitchofPA"]].sort_values("PitchofPA").tail(len(history))
+            if len(preceding) != len(history):
+                continue
+            ok = True
+            for (_, pr), h in zip(preceding.iterrows(), history[-len(preceding):]):
+                if clean_text(pr["PitchType"]) != clean_text(h["球種"]):
+                    ok = False; break
+                if result_label(pr["PitchCall"]) != clean_text(h["結果"]):
+                    ok = False; break
+            if ok:
+                seq.append(r)
+        if seq:
+            return pd.DataFrame(seq), "直前までの配球履歴が一致する過去打席"
+
+        # Relax to the most recent pitch only.
+        h = history[-1]
+        seq = []
+        for _, r in count_df.iterrows():
+            pa = base[base["PAKey"].eq(r["PAKey"])].sort_values("PitchofPA")
+            prev = pa[pa["PitchofPA"] < r["PitchofPA"]].sort_values("PitchofPA").tail(1)
+            if len(prev) == 1:
+                pr = prev.iloc[0]
+                if clean_text(pr["PitchType"]) == clean_text(h["球種"]) and result_label(pr["PitchCall"]) == clean_text(h["結果"]):
+                    seq.append(r)
+        if seq:
+            return pd.DataFrame(seq), "直前の1球が一致する過去打席"
+
+    return count_df, "現在のカウント・左右が一致する過去投球"
 
 
 # ---------- Session state ----------
-defaults = {
-    "balls": 0,
-    "strikes": 0,
-    "pitch_history": [],
-}
-for k, v in defaults.items():
+def reset_at_bat():
+    st.session_state.balls = 0
+    st.session_state.strikes = 0
+    st.session_state.pitch_history = []
+
+for k, v in {"balls": 0, "strikes": 0, "pitch_history": []}.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 # ---------- Game setup ----------
 st.title("⚾ Keio Pitch Calling Support")
-st.caption("TrackMan過去データから、投手×捕手×打者の状況に応じて次球候補を表示")
+st.caption("投手×捕手×打者左右の過去配球から、1球ごとに次球候補を更新するサポートアプリ")
 
 with st.sidebar:
     st.header("Game setup")
-
-    available_teams = [
-        t for t in TEAM_ORDER
-        if t in set(df["PitcherTeam"]) or t in set(df["CatcherTeam"])
-    ]
-    other_teams = sorted(set(df["PitcherTeam"]).union(df["CatcherTeam"]).union(df["BatterTeam"]))
-
-    team_options = available_teams + [t for t in other_teams if t not in available_teams]
-    team_code = st.selectbox(
-        "大学（投手・捕手側）",
-        team_options,
-        format_func=team_label,
-    )
+    team_values = set(df["PitcherTeam"]) | set(df["CatcherTeam"])
+    available_teams = [t for t in TEAM_ORDER if t in team_values]
+    others = sorted(t for t in team_values if t and t not in available_teams)
+    team_options = available_teams + others
+    team_code = st.selectbox("大学（投手・捕手側）", team_options, format_func=team_label)
 
     pitcher_df = df[df["PitcherTeam"].eq(team_code)]
-    pitcher_options = sorted(
-        pitcher_df[["Pitcher", "PitcherId"]].drop_duplicates()["Pitcher"].tolist()
-    )
+    pitcher_options = sorted(pitcher_df["Pitcher"].dropna().unique())
+    pitcher_options = [x for x in pitcher_options if valid_person_name(x)]
     if not pitcher_options:
-        st.warning("この大学の投手データがありません。")
-        st.stop()
+        st.warning("この大学の投手データがありません。"); st.stop()
     pitcher = st.selectbox("投手", pitcher_options)
 
-    # Only catchers actually paired with this pitcher AND on the same team.
     catcher_df = pitcher_df[
-        pitcher_df["CatcherTeam"].eq(team_code)
-        & pitcher_df["Pitcher"].eq(pitcher)
-        & pitcher_df["Catcher"].ne("")
+        pitcher_df["Pitcher"].eq(pitcher) &
+        pitcher_df["CatcherTeam"].eq(team_code) &
+        pitcher_df["Catcher"].ne("")
     ]
-    catcher_options = sorted(catcher_df["Catcher"].drop_duplicates().tolist())
-
+    catcher_options = sorted(catcher_df["Catcher"].unique())
     if not catcher_options:
-        st.warning("この投手に紐づく捕手データがありません。")
-        st.stop()
+        st.warning("この投手に紐づく捕手データがありません。"); st.stop()
     catcher = st.selectbox("捕手", catcher_options)
 
-    # Opponent is inferred from the batter data against this pitcher/catcher.
     matchup = df[
-        df["Pitcher"].eq(pitcher)
-        & df["Catcher"].eq(catcher)
-        & df["PitcherTeam"].eq(team_code)
-    ]
-    opponent_options = sorted(
-        [x for x in matchup["BatterTeam"].unique() if x and x != team_code]
-    )
+        df["Pitcher"].eq(pitcher) &
+        df["Catcher"].eq(catcher) &
+        df["PitcherTeam"].eq(team_code)
+    ].copy()
+    opponent_options = sorted(x for x in matchup["BatterTeam"].unique() if x and x != team_code)
+    opponent = None
     if opponent_options:
-        opponent = st.selectbox(
-            "相手大学",
-            opponent_options,
-            format_func=team_label,
-        )
+        opponent = st.selectbox("相手大学", opponent_options, format_func=team_label)
         matchup = matchup[matchup["BatterTeam"].eq(opponent)]
-    else:
-        opponent = None
 
-    batter_options = sorted([x for x in matchup["Batter"].unique() if x])
-    if not batter_options:
-        st.warning("この組み合わせの打者データがありません。")
-        st.stop()
-
-    batter = st.selectbox("打者", batter_options)
+    # IMPORTANT: choose handedness, not a specific batter.
+    sides = [s for s in ["Right", "Left"] if s in set(matchup["BatterSide"].map(normalize_side))]
+    if not sides:
+        sides = ["Right", "Left"]
+    batter_side = st.radio("打者", sides, horizontal=True)
 
     if st.button("🔄 新しい打席", use_container_width=True):
-        st.session_state.balls = 0
-        st.session_state.strikes = 0
-        st.session_state.pitch_history = []
-        st.rerun()
+        reset_at_bat(); st.rerun()
 
+# Current historical pool: pitcher + catcher + opponent + batter handedness.
 base = df[
-    df["Pitcher"].eq(pitcher)
-    & df["Catcher"].eq(catcher)
-    & df["Batter"].eq(batter)
+    df["Pitcher"].eq(pitcher) &
+    df["Catcher"].eq(catcher) &
+    df["BatterSide"].map(normalize_side).eq(batter_side)
 ].copy()
+if opponent:
+    base = base[base["BatterTeam"].eq(opponent)]
 
 if base.empty:
-    st.error("選択した投手・捕手・打者の組み合わせにデータがありません。")
+    st.error("この投手×捕手×打者左右の組み合わせに過去データがありません。")
     st.stop()
 
-st.markdown(
-    f"### {pitcher} × {catcher} × {batter}"
-)
-st.caption(
-    f"{team_label(team_code)}  |  {team_label(base['BatterTeam'].iloc[0])}"
-)
-st.metric("現在のカウント", f"{st.session_state.balls} - {st.session_state.strikes}")
+st.markdown(f"### {pitcher} × {catcher} × {batter_side}打者")
+if opponent:
+    st.caption(f"{team_label(team_code)}  |  {team_label(opponent)}")
+else:
+    st.caption(team_label(team_code))
 
-# ---------- Current situation ----------
-current_b = st.session_state.balls
-current_s = st.session_state.strikes
+current_b, current_s = st.session_state.balls, st.session_state.strikes
+st.metric("現在のカウント", f"{current_b} - {current_s}")
 
-situation = base[
-    base["Balls"].eq(current_b) & base["Strikes"].eq(current_s)
-].copy()
-
-fallback = situation.empty
-if fallback:
-    situation = base.copy()
-
+# ---------- Live history ----------
 if st.session_state.pitch_history:
     st.subheader("この打席の履歴")
-    st.dataframe(
-        pd.DataFrame(st.session_state.pitch_history),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.dataframe(pd.DataFrame(st.session_state.pitch_history), use_container_width=True, hide_index=True)
 
+# ---------- Candidate generation ----------
+candidates, basis = get_candidate_data(base, current_b, current_s, st.session_state.pitch_history)
 st.subheader("次球候補")
-if fallback:
-    st.info("このカウントの過去データがないため、同じ投手×捕手×打者の全投球から候補を表示しています。")
+st.caption(f"候補の根拠：{basis}（{len(candidates)}球）")
 
-pitch_counts = situation["PitchType"].replace("", np.nan).dropna().value_counts()
+pitch_counts = candidates["PitchType"].replace("", np.nan).dropna().value_counts()
 if not pitch_counts.empty:
     pitch_pct = (pitch_counts / pitch_counts.sum() * 100).round(1)
     rec = pd.DataFrame({
@@ -313,25 +318,35 @@ if not pitch_counts.empty:
     })
     st.dataframe(rec, use_container_width=True, hide_index=True)
 
-# ---------- Actual pitch entry ----------
+    # Top candidates as compact cards.
+    cols = st.columns(min(4, len(rec)))
+    for i, row in rec.head(4).iterrows():
+        with cols[i % len(cols)]:
+            st.metric(str(row["球種"]), f'{row["使用率(%)"]:.1f}%', f'{int(row["過去投球数"])}球')
+else:
+    st.warning("この条件では球種データがありません。")
+
+# Location tendency from actual TrackMan locations.
+loc_counts = candidates.loc[candidates["ActualZone"].ne("Unknown"), "ActualZone"].value_counts()
+if not loc_counts.empty:
+    st.markdown("#### 過去のコース傾向")
+    loc_pct = (loc_counts / loc_counts.sum() * 100).round(1)
+    st.dataframe(pd.DataFrame({"コース": loc_counts.index, "投球数": loc_counts.values, "割合(%)": [loc_pct[x] for x in loc_counts.index]}), use_container_width=True, hide_index=True)
+
+# ---------- Actual iPitch input/result ----------
 st.divider()
 st.subheader("iPitchで指定した球を記録")
 
-pitch_types = sorted([x for x in situation["PitchType"].dropna().unique() if str(x)])
+pitch_types = sorted(x for x in candidates["PitchType"].dropna().unique() if clean_text(x))
 if not pitch_types:
-    pitch_types = sorted([x for x in base["PitchType"].dropna().unique() if str(x)])
-
+    pitch_types = sorted(x for x in base["PitchType"].dropna().unique() if clean_text(x))
 selected_type = st.selectbox("球種", pitch_types)
 selected_zone = st.selectbox(
-    "コース",
-    [
-        "High-Inner", "High-Middle", "High-Outer",
-        "Middle-Inner", "Middle-Middle", "Middle-Outer",
-        "Low-Inner", "Low-Middle", "Low-Outer",
-    ],
+    "コース（iPitchで指定した位置）",
+    ["High-Inner", "High-Middle", "High-Outer", "Middle-Inner", "Middle-Middle", "Middle-Outer", "Low-Inner", "Low-Middle", "Low-Outer"],
 )
 
-st.caption("ここではiPitchで実際に指定した球を記録します。サイン自体はiPitch側で出します。")
+st.caption("ここで選んだ球種・コースを実際にiPitchへ入力し、投球後に結果をタップします。")
 
 results = {
     "BallCalled": "ボール",
@@ -341,7 +356,6 @@ results = {
     "InPlay": "インプレー",
     "HitByPitch": "死球",
 }
-
 cols = st.columns(3)
 for i, (result, label) in enumerate(results.items()):
     with cols[i % 3]:
@@ -353,7 +367,6 @@ for i, (result, label) in enumerate(results.items()):
                 "コース": selected_zone,
                 "結果": label,
             })
-
             nxt = finish_count(current_b, current_s, result)
             if nxt is None:
                 st.session_state.balls = 0
@@ -363,17 +376,13 @@ for i, (result, label) in enumerate(results.items()):
                 st.session_state.balls, st.session_state.strikes = nxt
             st.rerun()
 
+# ---------- Data evidence ----------
 st.divider()
-st.subheader("選択条件に対応する過去データ")
-
-show_cols = [
-    c for c in [
-        "Date", "Pitcher", "Catcher", "Batter", "BatterSide",
-        "Balls", "Strikes", "PitchType", "PitchCall", "PlayResult",
-        "RelSpeed", "SpinRate", "InducedVertBreak", "HorzBreak",
-        "Extension", "PlateLocSide", "PlateLocHeight", "VAA",
-        "PitcherTeam", "CatcherTeam", "BatterTeam",
-    ] if c in situation.columns
-]
-st.dataframe(situation[show_cols].tail(100), use_container_width=True, hide_index=True)
-
+st.subheader("候補生成に使った過去データ")
+show_cols = [c for c in [
+    "Date", "Pitcher", "Catcher", "Batter", "BatterSide", "BatterTeam",
+    "Balls", "Strikes", "PitchofPA", "PitchType", "PitchCall", "PlayResult",
+    "RelSpeed", "SpinRate", "InducedVertBreak", "HorzBreak", "Extension",
+    "PlateLocSide", "PlateLocHeight", "VAA", "ActualZone",
+] if c in candidates.columns]
+st.dataframe(candidates[show_cols].tail(100), use_container_width=True, hide_ind
