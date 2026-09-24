@@ -327,25 +327,92 @@ else:
     st.warning("この条件では球種データがありません。")
 
 # Location tendency from actual TrackMan locations.
-loc_counts = candidates.loc[candidates["ActualZone"].ne("Unknown"), "ActualZone"].value_counts()
-if not loc_counts.empty:
-    st.markdown("#### 過去のコース傾向")
-    loc_pct = (loc_counts / loc_counts.sum() * 100).round(1)
-    st.dataframe(pd.DataFrame({"コース": loc_counts.index, "投球数": loc_counts.values, "割合(%)": [loc_pct[x] for x in loc_counts.index]}), use_container_width=True, hide_index=True)
+# Show a 3x3 heatmap-like grid, and let the selected pitch type change the grid.
+zone_order = [
+    ["High-Inner", "High-Middle", "High-Outer"],
+    ["Middle-Inner", "Middle-Middle", "Middle-Outer"],
+    ["Low-Inner", "Low-Middle", "Low-Outer"],
+]
+zone_labels = {
+    "High-Inner": "高め・内", "High-Middle": "高め・真ん中", "High-Outer": "高め・外",
+    "Middle-Inner": "中・内", "Middle-Middle": "中・真ん中", "Middle-Outer": "中・外",
+    "Low-Inner": "低め・内", "Low-Middle": "低め・真ん中", "Low-Outer": "低め・外",
+}
+
+st.markdown("#### 過去のコース分布")
+
+# The pitch type selector is shared by the location analysis and the actual iPitch input.
+pitch_types = sorted(x for x in candidates["PitchType"].dropna().unique() if clean_text(x))
+if not pitch_types:
+    pitch_types = sorted(x for x in base["PitchType"].dropna().unique() if clean_text(x))
+selected_type = st.selectbox("球種（コース分布を確認）", pitch_types) if pitch_types else ""
+
+all_loc = candidates[candidates["ActualZone"].isin(zone_labels)].copy()
+pitch_loc = all_loc[all_loc["PitchType"].eq(selected_type)] if selected_type else all_loc
+
+def render_zone_grid(data, title, key_prefix, clickable=False):
+    counts = data["ActualZone"].value_counts() if not data.empty else pd.Series(dtype=int)
+    total = int(counts.sum())
+    st.markdown(f"**{title}**  {'（' + str(total) + '球）' if total else '（データなし）'}")
+    for r, row in enumerate(zone_order):
+        cols = st.columns(3)
+        for c, zone in enumerate(row):
+            n = int(counts.get(zone, 0))
+            pct = (n / total * 100) if total else 0.0
+            label = f"{zone_labels[zone]}\n{pct:.1f}%\n{n}球"
+            with cols[c]:
+                if clickable:
+                    selected = st.session_state.selected_zone == zone
+                    button_label = ("✓ " if selected else "") + label.replace("\n", "  ")
+                    if st.button(button_label, key=f"{key_prefix}_{zone}", use_container_width=True):
+                        st.session_state.selected_zone = zone
+                        st.rerun()
+                else:
+                    st.button(label.replace("\n", "  "), key=f"{key_prefix}_{zone}", use_container_width=True, disabled=True)
+    return counts, total
+
+render_zone_grid(pitch_loc, f"{selected_type} のコース分布", "stats_zone")
 
 # ---------- Actual iPitch input/result ----------
 st.divider()
 st.subheader("iPitchで指定した球を記録")
 
-pitch_types = sorted(x for x in candidates["PitchType"].dropna().unique() if clean_text(x))
-if not pitch_types:
-    pitch_types = sorted(x for x in base["PitchType"].dropna().unique() if clean_text(x))
-selected_type = st.selectbox("球種", pitch_types)
-selected_zone = st.selectbox(
-    "コース（iPitchで指定した位置）",
-    ["High-Inner", "High-Middle", "High-Outer", "Middle-Inner", "Middle-Middle", "Middle-Outer", "Low-Inner", "Low-Middle", "Low-Outer"],
-)
+# 3x3 location picker for the actual iPitch call.
+st.divider()
+st.subheader("iPitchで指定した球を記録")
 
+if not pitch_types:
+    st.warning("この条件では球種データがありません。")
+
+# 3x3 location picker for the actual iPitch call.
+zone_grid = [
+    [("High-Inner", "高め・内"), ("High-Middle", "高め・真ん中"), ("High-Outer", "高め・外")],
+    [("Middle-Inner", "中・内"), ("Middle-Middle", "中・真ん中"), ("Middle-Outer", "中・外")],
+    [("Low-Inner", "低め・内"), ("Low-Middle", "低め・真ん中"), ("Low-Outer", "低め・外")],
+]
+
+if "selected_zone" not in st.session_state:
+    st.session_state.selected_zone = "Middle-Middle"
+
+st.markdown("**コース（iPitchで指定した位置）**")
+st.caption("9マスから、実際にiPitchへ入力したコースをタップ")
+
+for r, row in enumerate(zone_grid):
+    cols = st.columns(3)
+    for c, (zone_value, zone_label) in enumerate(row):
+        with cols[c]:
+            is_selected = st.session_state.selected_zone == zone_value
+            label = f"✓ {zone_label}" if is_selected else zone_label
+            if st.button(
+                label,
+                key=f"zone_{zone_value}",
+                use_container_width=True,
+            ):
+                st.session_state.selected_zone = zone_value
+                st.rerun()
+
+selected_zone = st.session_state.selected_zone
+st.caption(f"選択中：**{dict(sum(zone_grid, []))[selected_zone]}**")
 st.caption("ここで選んだ球種・コースを実際にiPitchへ入力し、投球後に結果をタップします。")
 
 results = {
@@ -385,8 +452,4 @@ show_cols = [c for c in [
     "RelSpeed", "SpinRate", "InducedVertBreak", "HorzBreak", "Extension",
     "PlateLocSide", "PlateLocHeight", "VAA", "ActualZone",
 ] if c in candidates.columns]
-st.dataframe(
-    candidates[show_cols].tail(100),
-    use_container_width=True,
-    hide_index=True
-)
+st.dataframe(candidates[show_cols].tail(100), use_container_width=True, hide_ind
