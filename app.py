@@ -377,43 +377,99 @@ render_zone_grid(pitch_loc, f"{selected_type} のコース分布", "stats_zone")
 st.divider()
 st.subheader("iPitchで指定した球を記録")
 
-# 3x3 location picker for the actual iPitch call.
-st.divider()
-st.subheader("iPitchで指定した球を記録")
-
 if not pitch_types:
     st.warning("この条件では球種データがありません。")
 
-# 3x3 location picker for the actual iPitch call.
+# -------------------------
+# 球種
+# -------------------------
+st.markdown("**球種**")
+
+selected_type = st.selectbox(
+    "iPitchで指定する球種",
+    pitch_types,
+    key="ipitch_pitch_type"
+)
+
+# -------------------------
+# 9マスコース
+# -------------------------
 zone_grid = [
-    [("High-Inner", "高め・内"), ("High-Middle", "高め・真ん中"), ("High-Outer", "高め・外")],
-    [("Middle-Inner", "中・内"), ("Middle-Middle", "中・真ん中"), ("Middle-Outer", "中・外")],
-    [("Low-Inner", "低め・内"), ("Low-Middle", "低め・真ん中"), ("Low-Outer", "低め・外")],
+    [
+        ("High-Inner", "高め・内"),
+        ("High-Middle", "高め・真ん中"),
+        ("High-Outer", "高め・外"),
+    ],
+    [
+        ("Middle-Inner", "中・内"),
+        ("Middle-Middle", "中・真ん中"),
+        ("Middle-Outer", "中・外"),
+    ],
+    [
+        ("Low-Inner", "低め・内"),
+        ("Low-Middle", "低め・真ん中"),
+        ("Low-Outer", "低め・外"),
+    ],
 ]
 
 if "selected_zone" not in st.session_state:
     st.session_state.selected_zone = "Middle-Middle"
 
-st.markdown("**コース（iPitchで指定した位置）**")
-st.caption("9マスから、実際にiPitchへ入力したコースをタップ")
+zone_name_map = dict(sum(zone_grid, []))
 
-for r, row in enumerate(zone_grid):
-    cols = st.columns(3)
-    for c, (zone_value, zone_label) in enumerate(row):
-        with cols[c]:
-            is_selected = st.session_state.selected_zone == zone_value
-            label = f"✓ {zone_label}" if is_selected else zone_label
-            if st.button(
-                label,
-                key=f"zone_{zone_value}",
-                use_container_width=True,
-            ):
-                st.session_state.selected_zone = zone_value
-                st.rerun()
+# -------------------------
+# ストライクゾーン
+# -------------------------
+st.markdown(
+    '<div class="pitch-zone-title">コース</div>',
+    unsafe_allow_html=True
+)
 
-selected_zone = st.session_state.selected_zone
-st.caption(f"選択中：**{dict(sum(zone_grid, []))[selected_zone]}**")
-st.caption("ここで選んだ球種・コースを実際にiPitchへ入力し、投球後に結果をタップします。")
+with st.container(border=True):
+
+    st.markdown(
+        '<div class="pitch-zone-container">',
+        unsafe_allow_html=True
+    )
+
+    for r, row in enumerate(zone_grid):
+
+        cols = st.columns(3, gap="small")
+
+        for c, (zone_value, zone_label) in enumerate(row):
+
+            with cols[c]:
+
+                is_selected = (
+                    st.session_state.selected_zone == zone_value
+                )
+
+                if is_selected:
+                    label = f"✓\n{zone_label}"
+                else:
+                    label = zone_label
+
+                if st.button(
+                    label,
+                    key=f"zone_{zone_value}",
+                    use_container_width=True,
+                ):
+                    st.session_state.selected_zone = zone_value
+                    st.rerun()
+
+    st.markdown(
+        f"""
+        <div class="selected-zone-label">
+            選択中：{zone_name_map[st.session_state.selected_zone]}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+st.caption(
+    "ここで選んだ球種・コースをiPitchへ入力し、"
+    "実際の投球後に結果をタップしてください。"
+)
 
 results = {
     "BallCalled": "ボール",
