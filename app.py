@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -158,7 +159,9 @@ def finish_count(balls, strikes, pitch_call):
     if pc in {"StrikeCalled", "StrikeSwinging"}:
         return None if strikes >= 2 else (balls, strikes + 1)
     if "Foul" in pc:
-        return balls, strikes if strikes >= 2 else (balls, strikes + 1)
+        # With two strikes, a normal foul does not change the count.
+        # Otherwise it adds one strike.
+        return (balls, strikes) if strikes >= 2 else (balls, strikes + 1)
     if "Strike" in pc:
         return None if strikes >= 2 else (balls, strikes + 1)
     return balls, strikes
@@ -373,3 +376,4 @@ show_cols = [
     ] if c in situation.columns
 ]
 st.dataframe(situation[show_cols].tail(100), use_container_width=True, hide_index=True)
+
