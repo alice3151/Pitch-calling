@@ -15,7 +15,7 @@ st.set_page_config(
 
 
 # =========================================================
-# Responsive 3x3 pitch zone UI
+# Responsive pitch-zone UI
 # =========================================================
 
 st.markdown(
@@ -23,48 +23,36 @@ st.markdown(
     <style>
 
     /* =========================================
-       iPitch 3x3 zone
+       Pitch zone container
        ========================================= */
 
-    .st-key-pitch-zone [data-testid="stHorizontalBlock"] {
-        flex-wrap: nowrap !important;
-        gap: 6px !important;
+    .st-key-pitch-zone {
+        width: min(100%, 360px) !important;
+        max-width: 360px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
     }
 
     .st-key-pitch-zone [data-testid="column"] {
         min-width: 0 !important;
-        width: 33.333% !important;
-        flex: 1 1 0 !important;
-    }
-
-    .st-key-pitch-zone button {
-        width: 100% !important;
-        min-height: 0 !important;
-        height: clamp(75px, 25vw, 130px) !important;
-        padding: 4px !important;
-        font-size: clamp(11px, 3.2vw, 17px) !important;
-        line-height: 1.2 !important;
-        white-space: normal !important;
     }
 
     /* =========================================
-       Smartphone
+       Pitch zone buttons
        ========================================= */
 
-    @media (max-width: 640px) {
+    .st-key-pitch-zone button {
+        width: 100% !important;
+        aspect-ratio: 1 / 1 !important;
+        min-height: 0 !important;
+        height: auto !important;
+        padding: 2px !important;
 
-        .st-key-pitch-zone [data-testid="stHorizontalBlock"] {
-            flex-wrap: nowrap !important;
-            gap: 5px !important;
-        }
+        font-size: 13px !important;
+        line-height: 1.15 !important;
 
-        .st-key-pitch-zone button {
-            height: 27vw !important;
-            min-height: 75px !important;
-            max-height: 105px !important;
-            font-size: 12px !important;
-            padding: 2px !important;
-        }
+        white-space: normal !important;
+        overflow: hidden !important;
     }
 
     /* =========================================
@@ -73,10 +61,9 @@ st.markdown(
 
     .selected-zone-label {
         text-align: center;
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 700;
         margin-top: 10px;
-        margin-bottom: 4px;
     }
 
     /* =========================================
@@ -98,6 +85,22 @@ st.markdown(
     .candidate-sub {
         font-size: 13px;
         opacity: 0.75;
+    }
+
+    /* =========================================
+       Smartphone
+       ========================================= */
+
+    @media (max-width: 640px) {
+
+        .st-key-pitch-zone {
+            width: min(calc(100vw - 40px), 340px) !important;
+            max-width: 340px !important;
+        }
+
+        .st-key-pitch-zone button {
+            font-size: 12px !important;
+        }
     }
 
     </style>
@@ -138,19 +141,55 @@ TEAM_ORDER = [
 
 
 # =========================================================
-# Helper
+# Zone definitions
+# =========================================================
+
+ZONE_GRID = [
+    [
+        ("High-Inner", "高・内"),
+        ("High-Middle", "高・中"),
+        ("High-Outer", "高・外"),
+    ],
+    [
+        ("Middle-Inner", "中・内"),
+        ("Middle-Middle", "中・中"),
+        ("Middle-Outer", "中・外"),
+    ],
+    [
+        ("Low-Inner", "低・内"),
+        ("Low-Middle", "低・中"),
+        ("Low-Outer", "低・外"),
+    ],
+]
+
+
+ZONE_NAME_MAP = dict(
+    sum(ZONE_GRID, [])
+)
+
+
+ZONE_ORDER = [
+    zone
+    for row in ZONE_GRID
+    for zone, _ in row
+]
+
+
+# =========================================================
+# Helper functions
 # =========================================================
 
 def clean_text(value):
     if pd.isna(value):
         return ""
+
     return str(value).strip()
 
 
 def valid_person_name(value):
     """
-    正常な選手名かどうか。
-    TrackManの壊れた行ではIDなどがName列に入ることがあるため除外。
+    正常な選手名かどうか判定。
+    TrackManの壊れた行ではIDなどが名前列に入ることがある。
     """
 
     value = clean_text(value)
@@ -161,17 +200,10 @@ def valid_person_name(value):
     if value.replace(".", "").isdigit():
         return False
 
-    if "," not in value:
-        return False
-
-    return True
+    return "," in value
 
 
 def valid_numeric_id(value):
-    """
-    IDが数値として扱えるか。
-    """
-
     value = clean_text(value)
 
     if not value:
@@ -180,31 +212,36 @@ def valid_numeric_id(value):
     try:
         float(value)
         return True
+
     except Exception:
         return False
 
 
 def normalize_side(value):
-    """
-    Right / Left を統一。
-    """
-
     value = clean_text(value).lower()
 
-    if value in ["right", "r", "rh", "右", "右打"]:
+    if value in {
+        "right",
+        "r",
+        "rh",
+        "右",
+        "右打",
+    }:
         return "Right"
 
-    if value in ["left", "l", "lh", "左", "左打"]:
+    if value in {
+        "left",
+        "l",
+        "lh",
+        "左",
+        "左打",
+    }:
         return "Left"
 
     return ""
 
 
 def result_label(value):
-    """
-    結果表示用。
-    """
-
     mapping = {
         "BallCalled": "ボール",
         "Ball": "ボール",
@@ -216,290 +253,443 @@ def result_label(value):
         "HitByPitch": "死球",
     }
 
-    return mapping.get(value, value)
+    return mapping.get(
+        value,
+        value,
+    )
+
+
+def first_existing_column(
+    df,
+    names,
+):
+    """
+    複数候補の中から、DataFrameに存在する最初の列を返す。
+    """
+
+    for name in names:
+
+        if name in df.columns:
+            return name
+
+    return None
 
 
 # =========================================================
-# Zone calculation
+# Actual zone calculation
 # =========================================================
 
 def make_actual_zone(row):
     """
     PlateLocSide / PlateLocHeight から9分割ゾーンを作る。
-
-    Side:
-        < -0.23      Inner
-        -0.23〜0.23  Middle
-        > 0.23       Outer
-
-    Height:
-        < 2.15       Low
-        2.15〜3.15    Middle
-        > 3.15       High
     """
 
     try:
-        side = float(row["PlateLocSide"])
-        height = float(row["PlateLocHeight"])
+
+        side = float(
+            row.get(
+                "PlateLocSide",
+                np.nan,
+            )
+        )
+
+        height = float(
+            row.get(
+                "PlateLocHeight",
+                np.nan,
+            )
+        )
+
     except Exception:
+
         return ""
 
     if pd.isna(side) or pd.isna(height):
         return ""
 
+    # ---------------------------------------------
+    # 左右
+    # ---------------------------------------------
+
     if side < -0.23:
+
         side_name = "Inner"
+
     elif side <= 0.23:
+
         side_name = "Middle"
+
     else:
+
         side_name = "Outer"
 
+    # ---------------------------------------------
+    # 高低
+    # ---------------------------------------------
+
     if height < 2.15:
+
         height_name = "Low"
+
     elif height <= 3.15:
+
         height_name = "Middle"
+
     else:
+
         height_name = "High"
 
-    return f"{height_name}-{side_name}"
+    return (
+        f"{height_name}-{side_name}"
+    )
 
 
 # =========================================================
-# Load data
+# Load TrackMan data
 # =========================================================
 
 @st.cache_data
 def load_data():
 
     if not DATA_FILE.exists():
-        st.error(f"データファイルが見つかりません: {DATA_FILE}")
+
+        st.error(
+            f"データファイルが見つかりません: {DATA_FILE}"
+        )
+
         return pd.DataFrame()
 
     try:
+
         sheets = pd.read_excel(
             DATA_FILE,
-            sheet_name=None
+            sheet_name=None,
         )
+
     except Exception as e:
-        st.error(f"Excelの読み込みに失敗しました: {e}")
+
+        st.error(
+            f"Excelの読み込みに失敗しました: {e}"
+        )
+
         return pd.DataFrame()
 
     frames = []
+
+    # =====================================================
+    # 全シート読み込み
+    # =====================================================
 
     for sheet_name, sheet_df in sheets.items():
 
         if sheet_df is None or sheet_df.empty:
             continue
 
-        columns = set(sheet_df.columns)
-
-        if "Pitcher" not in columns:
+        if "Pitcher" not in sheet_df.columns:
             continue
 
-        if "Catcher" not in columns:
+        if "Catcher" not in sheet_df.columns:
             continue
 
         temp = sheet_df.copy()
+
         temp["SourceSheet"] = sheet_name
 
         frames.append(temp)
 
     if not frames:
+
         return pd.DataFrame()
 
     df = pd.concat(
         frames,
-        ignore_index=True
+        ignore_index=True,
     )
 
-    # -----------------------------------------------------
-    # 必要列を作る
-    # -----------------------------------------------------
+    # =====================================================
+    # 必要列
+    # =====================================================
 
     required_columns = [
         "Pitcher",
         "PitcherId",
         "PitcherTeam",
+
         "Catcher",
         "CatcherId",
         "CatcherTeam",
+
         "BatterSide",
-        "PitchType",
+
         "TaggedPitchType",
         "AutoPitchType",
+
         "Balls",
         "Strikes",
         "PitchofPA",
+
         "GameID",
         "Inning",
         "Top/Bottom",
         "PAofInning",
+
         "PlateLocSide",
         "PlateLocHeight",
+
         "PlayResult",
     ]
 
     for col in required_columns:
+
         if col not in df.columns:
+
             df[col] = ""
 
-    # -----------------------------------------------------
-    # Catcher正常データから復元辞書を作る
-    # -----------------------------------------------------
+
+    # =====================================================
+    # Catcher正常データから
+    # ID → 名前 / 大学
+    # =====================================================
 
     catcher_lookup = {}
 
     for _, row in df.iterrows():
 
-        catcher_name = clean_text(row["Catcher"])
-        catcher_id = clean_text(row["CatcherId"])
-        catcher_team = clean_text(row["CatcherTeam"])
+        catcher_name = clean_text(
+            row["Catcher"]
+        )
+
+        catcher_id = clean_text(
+            row["CatcherId"]
+        )
+
+        catcher_team = clean_text(
+            row["CatcherTeam"]
+        )
 
         if (
             valid_person_name(catcher_name)
             and valid_numeric_id(catcher_id)
             and catcher_team
         ):
-            catcher_lookup[catcher_id] = (
+
+            catcher_lookup[
+                catcher_id
+            ] = (
                 catcher_name,
                 catcher_team,
             )
 
-    # -----------------------------------------------------
-    # 壊れたCatcherデータを修復
-    # -----------------------------------------------------
 
-    fixed_catcher = []
-    fixed_catcher_id = []
-    fixed_catcher_team = []
+    # =====================================================
+    # 壊れたCatcherデータを修復
+    # =====================================================
+
+    fixed_names = []
+    fixed_ids = []
+    fixed_teams = []
 
     for _, row in df.iterrows():
 
-        catcher_name = clean_text(row["Catcher"])
-        catcher_id = clean_text(row["CatcherId"])
-        catcher_team = clean_text(row["CatcherTeam"])
+        catcher_name = clean_text(
+            row["Catcher"]
+        )
 
+        catcher_id = clean_text(
+            row["CatcherId"]
+        )
+
+        catcher_team = clean_text(
+            row["CatcherTeam"]
+        )
+
+        # ---------------------------------------------
         # 正常
-        if valid_person_name(catcher_name):
+        # ---------------------------------------------
 
-            fixed_catcher.append(catcher_name)
-            fixed_catcher_id.append(catcher_id)
-            fixed_catcher_team.append(catcher_team)
+        if valid_person_name(
+            catcher_name
+        ):
+
+            fixed_names.append(
+                catcher_name
+            )
+
+            fixed_ids.append(
+                catcher_id
+            )
+
+            fixed_teams.append(
+                catcher_team
+            )
 
             continue
 
-        # Catcher列にIDが入っている場合
-        if valid_numeric_id(catcher_name):
+
+        # ---------------------------------------------
+        # Catcher列にID
+        # ---------------------------------------------
+
+        if valid_numeric_id(
+            catcher_name
+        ):
 
             lookup_id = catcher_name
 
             if lookup_id in catcher_lookup:
 
-                name, team = catcher_lookup[lookup_id]
+                name, team = catcher_lookup[
+                    lookup_id
+                ]
 
-                fixed_catcher.append(name)
-                fixed_catcher_id.append(lookup_id)
-                fixed_catcher_team.append(team)
+                fixed_names.append(name)
+                fixed_ids.append(lookup_id)
+                fixed_teams.append(team)
 
                 continue
 
-        # CatcherIdにIDが入っている場合
-        if valid_numeric_id(catcher_id):
+
+        # ---------------------------------------------
+        # CatcherIdにID
+        # ---------------------------------------------
+
+        if valid_numeric_id(
+            catcher_id
+        ):
 
             if catcher_id in catcher_lookup:
 
-                name, team = catcher_lookup[catcher_id]
+                name, team = catcher_lookup[
+                    catcher_id
+                ]
 
-                fixed_catcher.append(name)
-                fixed_catcher_id.append(catcher_id)
-                fixed_catcher_team.append(team)
+                fixed_names.append(name)
+                fixed_ids.append(catcher_id)
+                fixed_teams.append(team)
 
                 continue
 
-        # 復元できない
-        fixed_catcher.append(catcher_name)
-        fixed_catcher_id.append(catcher_id)
-        fixed_catcher_team.append(catcher_team)
 
-    df["Catcher"] = fixed_catcher
-    df["CatcherId"] = fixed_catcher_id
-    df["CatcherTeam"] = fixed_catcher_team
+        # ---------------------------------------------
+        # 復元不能
+        # ---------------------------------------------
 
-    # -----------------------------------------------------
-    # 文字列列
-    # -----------------------------------------------------
+        fixed_names.append(
+            catcher_name
+        )
+
+        fixed_ids.append(
+            catcher_id
+        )
+
+        fixed_teams.append(
+            catcher_team
+        )
+
+
+    df["Catcher"] = fixed_names
+    df["CatcherId"] = fixed_ids
+    df["CatcherTeam"] = fixed_teams
+
+
+    # =====================================================
+    # Text columns
+    # =====================================================
 
     text_columns = [
         "Pitcher",
         "PitcherId",
         "PitcherTeam",
+
         "Catcher",
         "CatcherId",
         "CatcherTeam",
+
         "BatterSide",
+
         "TaggedPitchType",
         "AutoPitchType",
+
         "GameID",
         "Inning",
         "Top/Bottom",
         "PAofInning",
+
         "PlayResult",
     ]
 
     for col in text_columns:
-        df[col] = df[col].map(clean_text)
 
-    # -----------------------------------------------------
+        df[col] = df[col].map(
+            clean_text
+        )
+
+
+    # =====================================================
     # PitchType
-    # -----------------------------------------------------
+    # =====================================================
 
-    df["PitchType"] = df["TaggedPitchType"]
+    df["PitchType"] = (
+        df["TaggedPitchType"]
+    )
 
-    empty_pitch = df["PitchType"].eq("")
+    empty_pitch = (
+        df["PitchType"] == ""
+    )
 
-    df.loc[empty_pitch, "PitchType"] = df.loc[
+    df.loc[
+        empty_pitch,
+        "PitchType"
+    ] = df.loc[
         empty_pitch,
         "AutoPitchType"
     ]
 
-    # -----------------------------------------------------
-    # Numeric
-    # -----------------------------------------------------
 
-    for col in [
+    # =====================================================
+    # Numeric
+    # =====================================================
+
+    numeric_columns = [
         "Balls",
         "Strikes",
         "PitchofPA",
         "PlateLocSide",
         "PlateLocHeight",
-    ]:
+    ]
+
+    for col in numeric_columns:
 
         df[col] = pd.to_numeric(
             df[col],
-            errors="coerce"
+            errors="coerce",
         )
 
-    # -----------------------------------------------------
+
+    # =====================================================
     # Batter side
-    # -----------------------------------------------------
+    # =====================================================
 
     df["BatterSideNormalized"] = (
-        df["BatterSide"]
-        .map(normalize_side)
+        df["BatterSide"].map(
+            normalize_side
+        )
     )
 
-    # -----------------------------------------------------
-    # ActualZone
-    # -----------------------------------------------------
+
+    # =====================================================
+    # Actual zone
+    # =====================================================
 
     df["ActualZone"] = df.apply(
         make_actual_zone,
-        axis=1
+        axis=1,
     )
 
-    # -----------------------------------------------------
+
+    # =====================================================
     # PA key
-    # -----------------------------------------------------
+    # =====================================================
 
     df["PAKey"] = (
         df["GameID"].astype(str)
@@ -511,44 +701,49 @@ def load_data():
         + df["PAofInning"].astype(str)
     )
 
-    # -----------------------------------------------------
-    # Pitcher / catcher nameが正常な行だけ
-    # -----------------------------------------------------
+
+    # =====================================================
+    # 正常なPitcher / Catcherだけ残す
+    # =====================================================
 
     df = df[
-        df["Pitcher"].map(valid_person_name)
+        df["Pitcher"].map(
+            valid_person_name
+        )
         &
-        df["Catcher"].map(valid_person_name)
+        df["Catcher"].map(
+            valid_person_name
+        )
     ].copy()
 
-    # -----------------------------------------------------
-    # 並び順
-    # -----------------------------------------------------
 
-    sort_columns = []
+    # =====================================================
+    # Sort
+    # =====================================================
 
-    if "GameID" in df.columns:
-        sort_columns.append("GameID")
-
-    if "Inning" in df.columns:
-        sort_columns.append("Inning")
-
-    if "Top/Bottom" in df.columns:
-        sort_columns.append("Top/Bottom")
-
-    if "PAofInning" in df.columns:
-        sort_columns.append("PAofInning")
-
-    if "PitchofPA" in df.columns:
-        sort_columns.append("PitchofPA")
+    sort_columns = [
+        col
+        for col in [
+            "GameID",
+            "Inning",
+            "Top/Bottom",
+            "PAofInning",
+            "PitchofPA",
+        ]
+        if col in df.columns
+    ]
 
     if sort_columns:
+
         df = df.sort_values(
             sort_columns,
-            kind="stable"
+            kind="stable",
         )
 
-    return df.reset_index(drop=True)
+
+    return df.reset_index(
+        drop=True
+    )
 
 
 # =========================================================
@@ -558,35 +753,39 @@ def load_data():
 def finish_count(
     balls,
     strikes,
-    result
+    result,
 ):
     """
     投球結果から次のカウントを計算。
-
-    戻り値:
-        next_balls
-        next_strikes
-        plate_appearance_finished
     """
 
     balls = int(balls)
     strikes = int(strikes)
 
-    result = clean_text(result)
+    result = clean_text(
+        result
+    )
 
-    # ---------------------------------------------
+
+    # =====================================================
     # 打席終了
-    # ---------------------------------------------
+    # =====================================================
 
     if result in [
         "InPlay",
         "HitByPitch",
     ]:
-        return 0, 0, True
 
-    # ---------------------------------------------
-    # ボール
-    # ---------------------------------------------
+        return (
+            0,
+            0,
+            True,
+        )
+
+
+    # =====================================================
+    # Ball
+    # =====================================================
 
     if result in [
         "BallCalled",
@@ -596,13 +795,23 @@ def finish_count(
         balls += 1
 
         if balls >= 4:
-            return 0, 0, True
 
-        return balls, strikes, False
+            return (
+                0,
+                0,
+                True,
+            )
 
-    # ---------------------------------------------
-    # 見逃し / 空振り
-    # ---------------------------------------------
+        return (
+            balls,
+            strikes,
+            False,
+        )
+
+
+    # =====================================================
+    # Strike
+    # =====================================================
 
     if result in [
         "StrikeCalled",
@@ -612,36 +821,206 @@ def finish_count(
         strikes += 1
 
         if strikes >= 3:
-            return 0, 0, True
 
-        return balls, strikes, False
+            return (
+                0,
+                0,
+                True,
+            )
 
-    # ---------------------------------------------
-    # ファウル
-    # ---------------------------------------------
+        return (
+            balls,
+            strikes,
+            False,
+        )
+
+
+    # =====================================================
+    # Foul
+    # =====================================================
 
     if result in [
         "Foul",
         "FoulBall",
     ]:
 
-        # 2ストライクなら増えない
+        # 2ストライク後は据え置き
         if strikes >= 2:
-            return balls, strikes, False
+
+            return (
+                balls,
+                strikes,
+                False,
+            )
 
         strikes += 1
 
-        return balls, strikes, False
+        return (
+            balls,
+            strikes,
+            False,
+        )
 
-    # ---------------------------------------------
-    # その他
-    # ---------------------------------------------
 
-    return balls, strikes, False
+    return (
+        balls,
+        strikes,
+        False,
+    )
 
 
 # =========================================================
-# Candidate data
+# IMPORTANT:
+# TrackMan result column compatibility
+# =========================================================
+
+def get_previous_result(row):
+    """
+    過去の投球結果を取得する。
+
+    現在のTrackManデータでは PlayResult を使用。
+    古いコードで使っていた PitchResult を直接参照しない。
+
+    これによって KeyError を防ぐ。
+    """
+
+    if "PlayResult" in row.index:
+
+        return clean_text(
+            row["PlayResult"]
+        )
+
+    if "PitchResult" in row.index:
+
+        return clean_text(
+            row["PitchResult"]
+        )
+
+    if "Result" in row.index:
+
+        return clean_text(
+            row["Result"]
+        )
+
+    return ""
+
+
+# =========================================================
+# History matching
+# =========================================================
+
+def history_matches(
+    previous_rows,
+    history,
+):
+    """
+    現在の配球履歴と過去PAの直前履歴を比較。
+    """
+
+    if not history:
+
+        return False
+
+    if len(previous_rows) < len(history):
+
+        return False
+
+    previous_rows = previous_rows.tail(
+        len(history)
+    )
+
+
+    for hist, (_, prev_row) in zip(
+        history,
+        previous_rows.iterrows(),
+    ):
+
+        hist_pitch = clean_text(
+            hist.get(
+                "球種",
+                "",
+            )
+        )
+
+        hist_zone = clean_text(
+            hist.get(
+                "コース",
+                "",
+            )
+        )
+
+        hist_result = clean_text(
+            hist.get(
+                "結果",
+                "",
+            )
+        )
+
+
+        prev_pitch = clean_text(
+            prev_row.get(
+                "PitchType",
+                "",
+            )
+        )
+
+        prev_zone = clean_text(
+            prev_row.get(
+                "ActualZone",
+                "",
+            )
+        )
+
+        # ここが今回のKeyError対策
+        prev_result = get_previous_result(
+            prev_row
+        )
+
+
+        # ---------------------------------------------
+        # 球種
+        # ---------------------------------------------
+
+        if (
+            hist_pitch
+            and prev_pitch
+            and hist_pitch != prev_pitch
+        ):
+
+            return False
+
+
+        # ---------------------------------------------
+        # コース
+        # ---------------------------------------------
+
+        if (
+            hist_zone
+            and prev_zone
+            and hist_zone != prev_zone
+        ):
+
+            return False
+
+
+        # ---------------------------------------------
+        # 結果
+        # ---------------------------------------------
+
+        if (
+            hist_result
+            and prev_result
+            and hist_result != prev_result
+        ):
+
+            return False
+
+
+    return True
+
+
+# =========================================================
+# Candidate generation
 # =========================================================
 
 def get_candidate_data(
@@ -651,24 +1030,29 @@ def get_candidate_data(
     history,
 ):
     """
-    現在の条件に合う過去投球から
     次球候補を作る。
 
     優先順位：
 
-    1. 現在のカウント
+    1. 現在カウント
        +
-       直前の配球履歴完全一致
+       直前までの配球履歴完全一致
 
-    2. 現在のカウント
+    2. 現在カウント
        +
        直前1球一致
 
-    3. 現在のカウントのみ
+    3. 現在カウントのみ
     """
 
     if base.empty:
+
         return base.copy()
+
+
+    # =====================================================
+    # Current count
+    # =====================================================
 
     count_df = base[
         (base["Balls"] == current_balls)
@@ -676,257 +1060,240 @@ def get_candidate_data(
         (base["Strikes"] == current_strikes)
     ].copy()
 
+
     if count_df.empty:
+
         return count_df
 
+
+    # 履歴なしならカウントだけ
     if not history:
+
         return count_df
 
-    # -----------------------------------------------------
-    # 同じPA内の次球を探す
-    # -----------------------------------------------------
 
-    rows = []
+    # =====================================================
+    # 完全一致
+    # =====================================================
 
-    for pa_key, pa_df in count_df.groupby("PAKey"):
+    full_matches = []
+
+
+    for _, pa_df in count_df.groupby(
+        "PAKey",
+        sort=False,
+    ):
 
         pa_df = pa_df.sort_values(
             "PitchofPA"
         )
 
+
         for _, row in pa_df.iterrows():
 
-            pitch_no = row["PitchofPA"]
+            pitch_no = row[
+                "PitchofPA"
+            ]
+
 
             if pd.isna(pitch_no):
+
                 continue
+
 
             try:
-                pitch_no = int(pitch_no)
-            except Exception:
-                continue
 
-            if pitch_no <= len(history):
-                continue
+                pitch_no = int(
+                    pitch_no
+                )
 
-            # この球の直前までの履歴
-            previous = pa_df[
-                pa_df["PitchofPA"] < pitch_no
-            ].sort_values("PitchofPA")
-
-            if previous.empty:
-                continue
-
-            previous = previous.tail(
-                len(history)
-            )
-
-            if len(previous) < len(history):
-                continue
-
-            match = True
-
-            for hist, (_, prev_row) in zip(
-                history,
-                previous.iterrows()
+            except (
+                TypeError,
+                ValueError,
             ):
 
-                hist_pitch = clean_text(
-                    hist.get("球種", "")
+                continue
+
+
+            previous = pa_df[
+                pa_df["PitchofPA"]
+                < pitch_no
+            ].sort_values(
+                "PitchofPA"
+            )
+
+
+            if history_matches(
+                previous,
+                history,
+            ):
+
+                full_matches.append(
+                    row
                 )
 
-                hist_zone = clean_text(
-                    hist.get("コース", "")
-                )
 
-                hist_result = clean_text(
-                    hist.get("結果", "")
-                )
+    if full_matches:
 
-                prev_pitch = clean_text(
-                    prev_row.get("PitchType", "")
-                )
+        return pd.DataFrame(
+            full_matches
+        ).reset_index(
+            drop=True
+        )
 
-                prev_zone = clean_text(
-                    prev_row.get("ActualZone", "")
-                )
 
-                prev_result = clean_text(
-                    prev_row.get("PitchResult", "")
-                )
-
-                # 球種
-                if (
-                    hist_pitch
-                    and prev_pitch
-                    and hist_pitch != prev_pitch
-                ):
-                    match = False
-                    break
-
-                # コース
-                if (
-                    hist_zone
-                    and prev_zone
-                    and hist_zone != prev_zone
-                ):
-                    match = False
-                    break
-
-                # 結果
-                if (
-                    hist_result
-                    and prev_result
-                    and hist_result != prev_result
-                ):
-                    match = False
-                    break
-
-            if match:
-                rows.append(row)
-
-    # -----------------------------------------------------
-    # 完全一致
-    # -----------------------------------------------------
-
-    if rows:
-
-        result = pd.DataFrame(rows)
-
-        if not result.empty:
-            return result
-
-    # -----------------------------------------------------
+    # =====================================================
     # 直前1球一致
-    # -----------------------------------------------------
+    # =====================================================
 
-    if history:
+    last = history[-1]
 
-        last = history[-1]
 
-        last_pitch = clean_text(
-            last.get("球種", "")
+    last_pitch = clean_text(
+        last.get(
+            "球種",
+            "",
+        )
+    )
+
+    last_zone = clean_text(
+        last.get(
+            "コース",
+            "",
+        )
+    )
+
+    last_result = clean_text(
+        last.get(
+            "結果",
+            "",
+        )
+    )
+
+
+    one_pitch_matches = []
+
+
+    for _, pa_df in count_df.groupby(
+        "PAKey",
+        sort=False,
+    ):
+
+        pa_df = pa_df.sort_values(
+            "PitchofPA"
         )
 
-        last_zone = clean_text(
-            last.get("コース", "")
-        )
 
-        last_result = clean_text(
-            last.get("結果", "")
-        )
+        for _, row in pa_df.iterrows():
 
-        matched = count_df.copy()
+            pitch_no = row[
+                "PitchofPA"
+            ]
 
-        matched["PreviousPitchType"] = (
-            matched.groupby("PAKey")["PitchType"]
-            .shift(0)
-        )
 
-        # 直前球の情報をPA内で照合
-        rows = []
+            if pd.isna(pitch_no):
 
-        for pa_key, pa_df in count_df.groupby("PAKey"):
+                continue
 
-            pa_df = pa_df.sort_values("PitchofPA")
 
-            for _, row in pa_df.iterrows():
+            try:
 
-                pitch_no = row["PitchofPA"]
-
-                if pd.isna(pitch_no):
-                    continue
-
-                try:
-                    pitch_no = int(pitch_no)
-                except Exception:
-                    continue
-
-                previous = pa_df[
-                    pa_df["PitchofPA"] < pitch_no
-                ].sort_values("PitchofPA")
-
-                if previous.empty:
-                    continue
-
-                prev_row = previous.iloc[-1]
-
-                pitch_match = (
-                    not last_pitch
-                    or clean_text(prev_row["PitchType"])
-                    == last_pitch
+                pitch_no = int(
+                    pitch_no
                 )
 
-                zone_match = (
-                    not last_zone
-                    or clean_text(prev_row["ActualZone"])
-                    == last_zone
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                continue
+
+
+            previous = pa_df[
+                pa_df["PitchofPA"]
+                < pitch_no
+            ].sort_values(
+                "PitchofPA"
+            )
+
+
+            if previous.empty:
+
+                continue
+
+
+            prev_row = previous.iloc[-1]
+
+
+            prev_pitch = clean_text(
+                prev_row.get(
+                    "PitchType",
+                    "",
                 )
+            )
 
-                result_match = (
-                    not last_result
-                    or clean_text(prev_row["PitchResult"])
-                    == last_result
+            prev_zone = clean_text(
+                prev_row.get(
+                    "ActualZone",
+                    "",
                 )
+            )
 
-                if (
-                    pitch_match
-                    and zone_match
-                    and result_match
-                ):
-                    rows.append(row)
+            # ★ ここもPitchResultを直接参照しない
+            prev_result = get_previous_result(
+                prev_row
+            )
 
-        if rows:
 
-            result = pd.DataFrame(rows)
+            if (
+                last_pitch
+                and prev_pitch
+                and last_pitch != prev_pitch
+            ):
 
-            if not result.empty:
-                return result
+                continue
 
-    # -----------------------------------------------------
+
+            if (
+                last_zone
+                and prev_zone
+                and last_zone != prev_zone
+            ):
+
+                continue
+
+
+            if (
+                last_result
+                and prev_result
+                and last_result != prev_result
+            ):
+
+                continue
+
+
+            one_pitch_matches.append(
+                row
+            )
+
+
+    if one_pitch_matches:
+
+        return pd.DataFrame(
+            one_pitch_matches
+        ).reset_index(
+            drop=True
+        )
+
+
+    # =====================================================
     # カウントのみ
-    # -----------------------------------------------------
+    # =====================================================
 
-    return count_df
-
-
-# =========================================================
-# Zone definitions
-# =========================================================
-
-ZONE_GRID = [
-    [
-        ("High-Inner", "高め・内"),
-        ("High-Middle", "高め・真ん中"),
-        ("High-Outer", "高め・外"),
-    ],
-    [
-        ("Middle-Inner", "中・内"),
-        ("Middle-Middle", "中・真ん中"),
-        ("Middle-Outer", "中・外"),
-    ],
-    [
-        ("Low-Inner", "低め・内"),
-        ("Low-Middle", "低め・真ん中"),
-        ("Low-Outer", "低め・外"),
-    ],
-]
-
-ZONE_NAME_MAP = dict(
-    sum(ZONE_GRID, [])
-)
-
-ZONE_ORDER = [
-    "High-Inner",
-    "High-Middle",
-    "High-Outer",
-    "Middle-Inner",
-    "Middle-Middle",
-    "Middle-Outer",
-    "Low-Inner",
-    "Low-Middle",
-    "Low-Outer",
-]
+    return count_df.reset_index(
+        drop=True
+    )
 
 
 # =========================================================
@@ -935,7 +1302,9 @@ ZONE_ORDER = [
 
 df = load_data()
 
+
 if df.empty:
+
     st.stop()
 
 
@@ -944,26 +1313,37 @@ if df.empty:
 # =========================================================
 
 if "balls" not in st.session_state:
+
     st.session_state.balls = 0
 
+
 if "strikes" not in st.session_state:
+
     st.session_state.strikes = 0
 
+
 if "pitch_history" not in st.session_state:
+
     st.session_state.pitch_history = []
 
+
 if "selected_zone" not in st.session_state:
-    st.session_state.selected_zone = "Middle-Middle"
+
+    st.session_state.selected_zone = (
+        "Middle-Middle"
+    )
 
 
 # =========================================================
 # Header
 # =========================================================
 
-st.title("⚾ Keio Pitch Calling Support")
+st.title(
+    "⚾ Keio Pitch Calling Support"
+)
 
 st.caption(
-    "過去のTrackManデータから、投手×捕手×打者左右×カウント×配球履歴を考慮して次球候補を表示します。"
+    "投手×捕手×打者左右×カウント×配球履歴から次球候補を表示"
 )
 
 
@@ -971,45 +1351,65 @@ st.caption(
 # Sidebar
 # =========================================================
 
-st.sidebar.header("条件設定")
+st.sidebar.header(
+    "条件設定"
+)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # University
-# ---------------------------------------------------------
+# =========================================================
 
 available_teams = [
     code
     for code in TEAM_ORDER
-    if code in set(df["PitcherTeam"])
-    or code in set(df["CatcherTeam"])
+    if (
+        code in set(
+            df["PitcherTeam"]
+        )
+        or
+        code in set(
+            df["CatcherTeam"]
+        )
+    )
 ]
 
+
 if not available_teams:
+
     available_teams = sorted(
         set(
-            df["PitcherTeam"].dropna()
+            df["PitcherTeam"]
+            .dropna()
         )
         |
         set(
-            df["CatcherTeam"].dropna()
+            df["CatcherTeam"]
+            .dropna()
         )
     )
+
 
 team_code = st.sidebar.selectbox(
     "大学（投手・捕手側）",
     available_teams,
-    format_func=lambda x: TEAM_NAMES.get(x, x),
+    format_func=lambda x:
+        TEAM_NAMES.get(
+            x,
+            x,
+        ),
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Pitcher
-# ---------------------------------------------------------
+# =========================================================
 
 pitcher_df = df[
-    df["PitcherTeam"] == team_code
+    df["PitcherTeam"]
+    == team_code
 ].copy()
+
 
 pitchers = sorted(
     pitcher_df["Pitcher"]
@@ -1018,11 +1418,15 @@ pitchers = sorted(
     .tolist()
 )
 
+
 if not pitchers:
+
     st.warning(
         "この大学の投手データがありません。"
     )
+
     st.stop()
+
 
 pitcher = st.sidebar.selectbox(
     "投手",
@@ -1030,17 +1434,22 @@ pitcher = st.sidebar.selectbox(
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Catcher
-# ---------------------------------------------------------
+# =========================================================
 
 catcher_df = pitcher_df[
-    pitcher_df["Pitcher"] == pitcher
+    (
+        pitcher_df["Pitcher"]
+        == pitcher
+    )
+    &
+    (
+        pitcher_df["CatcherTeam"]
+        == team_code
+    )
 ].copy()
 
-catcher_df = catcher_df[
-    catcher_df["CatcherTeam"] == team_code
-]
 
 catchers = sorted(
     catcher_df["Catcher"]
@@ -1049,11 +1458,15 @@ catchers = sorted(
     .tolist()
 )
 
+
 if not catchers:
+
     st.warning(
         "この投手と組んでいる捕手データがありません。"
     )
+
     st.stop()
+
 
 catcher = st.sidebar.selectbox(
     "捕手",
@@ -1061,57 +1474,93 @@ catcher = st.sidebar.selectbox(
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Opponent
-# ---------------------------------------------------------
+# =========================================================
 
-opponent_candidates = sorted(
-    set(
-        df[
-            df["PitcherTeam"] == team_code
-        ]["CatcherTeam"]
-        .dropna()
-        .tolist()
-    )
+opponent_col = first_existing_column(
+    df,
+    [
+        "BatterTeam",
+        "BattingTeam",
+        "OpponentTeam",
+        "Opponent",
+        "HitterTeam",
+    ],
 )
 
-opponent_candidates = [
-    x
-    for x in opponent_candidates
-    if x != team_code
-]
 
-opponent_options = ["すべて"] + opponent_candidates
+if opponent_col:
+
+    opponent_candidates = sorted(
+        x
+        for x in (
+            df[opponent_col]
+            .dropna()
+            .map(clean_text)
+            .unique()
+        )
+        if x
+        and x != team_code
+    )
+
+else:
+
+    opponent_candidates = sorted(
+        x
+        for x in (
+            df["CatcherTeam"]
+            .dropna()
+            .map(clean_text)
+            .unique()
+        )
+        if x
+        and x != team_code
+    )
+
+
+opponent_options = [
+    "すべて"
+] + opponent_candidates
+
 
 opponent = st.sidebar.selectbox(
     "相手大学",
     opponent_options,
-    format_func=lambda x: (
-        "すべて"
-        if x == "すべて"
-        else TEAM_NAMES.get(x, x)
-    ),
+    format_func=lambda x:
+        (
+            "すべて"
+            if x == "すべて"
+            else TEAM_NAMES.get(
+                x,
+                x,
+            )
+        ),
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Batter side
-# ---------------------------------------------------------
+# =========================================================
 
 batter_side = st.sidebar.radio(
     "打者",
-    ["Right", "Left"],
-    format_func=lambda x: (
-        "右打者"
-        if x == "Right"
-        else "左打者"
-    ),
+    [
+        "Right",
+        "Left",
+    ],
+    format_func=lambda x:
+        (
+            "右打者"
+            if x == "Right"
+            else "左打者"
+        ),
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Reset
-# ---------------------------------------------------------
+# =========================================================
 
 if st.sidebar.button(
     "この打席をリセット",
@@ -1120,8 +1569,12 @@ if st.sidebar.button(
 
     st.session_state.balls = 0
     st.session_state.strikes = 0
+
     st.session_state.pitch_history = []
-    st.session_state.selected_zone = "Middle-Middle"
+
+    st.session_state.selected_zone = (
+        "Middle-Middle"
+    )
 
     st.rerun()
 
@@ -1130,36 +1583,62 @@ if st.sidebar.button(
 # Current condition
 # =========================================================
 
-st.subheader("現在の状況")
+st.subheader(
+    "現在の状況"
+)
 
-count_col1, count_col2, count_col3 = st.columns(3)
 
-with count_col1:
+col1, col2, col3 = st.columns(3)
+
+
+with col1:
+
     st.metric(
         "投手",
         pitcher,
     )
 
-with count_col2:
+
+with col2:
+
     st.metric(
         "捕手",
         catcher,
     )
 
-with count_col3:
+
+with col3:
+
     st.metric(
         "カウント",
-        f"{st.session_state.balls}-{st.session_state.strikes}",
+        (
+            f"{st.session_state.balls}"
+            "-"
+            f"{st.session_state.strikes}"
+        ),
     )
 
 
 st.write(
-    f"**打者：** {'右打者' if batter_side == 'Right' else '左打者'}"
+    "**打者：** "
+    +
+    (
+        "右打者"
+        if batter_side == "Right"
+        else "左打者"
+    )
 )
 
+
 if opponent != "すべて":
+
     st.write(
-        f"**相手：** {TEAM_NAMES.get(opponent, opponent)}"
+        "**相手：** "
+        +
+        TEAM_NAMES.get(
+            opponent,
+            opponent,
+        )
     )
 
 
@@ -1172,33 +1651,63 @@ base = df[
     &
     (df["Catcher"] == catcher)
     &
-    (df["BatterSideNormalized"] == batter_side)
+    (
+        df["BatterSideNormalized"]
+        == batter_side
+    )
 ].copy()
 
 
+# =========================================================
+# Opponent filter
+# =========================================================
+
 if opponent != "すべて":
-    base = base[
-        base["CatcherTeam"] == opponent
-    ].copy()
+
+    if opponent_col:
+
+        base = base[
+            base[
+                opponent_col
+            ].map(
+                clean_text
+            )
+            == opponent
+        ].copy()
+
+    else:
+
+        # 相手大学列が存在しないデータで
+        # 誤った絞り込みをしない
+        base = base.iloc[0:0].copy()
 
 
 # =========================================================
-# Current candidates
+# Candidates
 # =========================================================
 
 candidates = get_candidate_data(
     base=base,
-    current_balls=st.session_state.balls,
-    current_strikes=st.session_state.strikes,
-    history=st.session_state.pitch_history,
+    current_balls=(
+        st.session_state.balls
+    ),
+    current_strikes=(
+        st.session_state.strikes
+    ),
+    history=(
+        st.session_state.pitch_history
+    ),
 )
 
 
 # =========================================================
-# Overall pitch usage
+# Pitch usage
 # =========================================================
 
-st.subheader("過去の球種傾向")
+st.subheader(
+    "過去の球種傾向"
+)
+
 
 if base.empty:
 
@@ -1210,27 +1719,38 @@ else:
 
     pitch_counts = (
         base["PitchType"]
-        .replace("", np.nan)
+        .replace(
+            "",
+            np.nan,
+        )
         .dropna()
         .value_counts()
     )
 
+
     if not pitch_counts.empty:
 
-        usage_df = pitch_counts.rename(
-            "投球数"
-        ).reset_index()
+        usage_df = (
+            pitch_counts
+            .rename("投球数")
+            .reset_index()
+        )
+
 
         usage_df.columns = [
             "球種",
             "投球数",
         ]
 
+
         usage_df["使用率"] = (
             usage_df["投球数"]
-            / usage_df["投球数"].sum()
-            * 100
+            /
+            usage_df["投球数"].sum()
+            *
+            100
         ).round(1)
+
 
         st.dataframe(
             usage_df,
@@ -1246,12 +1766,13 @@ else:
 
 
 # =========================================================
-# Current count candidate distribution
+# Next pitch candidates
 # =========================================================
 
 st.subheader(
-    f"このカウントでの次球候補"
+    "このカウントでの次球候補"
 )
+
 
 if candidates.empty:
 
@@ -1266,33 +1787,48 @@ else:
             candidates["PitchType"].ne("")
         ]
         .groupby(
-            ["PitchType", "ActualZone"],
-            dropna=False
+            [
+                "PitchType",
+                "ActualZone",
+            ],
+            dropna=False,
         )
         .size()
-        .reset_index(name="投球数")
+        .reset_index(
+            name="投球数"
+        )
         .sort_values(
             "投球数",
-            ascending=False
+            ascending=False,
         )
     )
+
 
     if not candidate_pairs.empty:
 
         total_candidates = (
-            candidate_pairs["投球数"].sum()
+            candidate_pairs[
+                "投球数"
+            ].sum()
         )
+
 
         candidate_pairs["割合"] = (
             candidate_pairs["投球数"]
-            / total_candidates
-            * 100
+            /
+            total_candidates
+            *
+            100
         ).round(1)
 
-        candidate_pairs = candidate_pairs.head(10)
 
-        for rank, (_, row) in enumerate(
-            candidate_pairs.iterrows(),
+        for rank, (
+            _,
+            row,
+        ) in enumerate(
+            candidate_pairs.head(
+                10
+            ).iterrows(),
             start=1,
         ):
 
@@ -1307,7 +1843,7 @@ else:
             zone_label = (
                 ZONE_NAME_MAP.get(
                     zone,
-                    zone
+                    zone,
                 )
             )
 
@@ -1319,15 +1855,23 @@ else:
                 row["割合"]
             )
 
+
             st.markdown(
                 f"""
                 <div class="candidate-card">
+
                     <div class="candidate-main">
-                        {rank}. {pitch_type} × {zone_label}
+                        {rank}.
+                        {pitch_type}
+                        ×
+                        {zone_label}
                     </div>
+
                     <div class="candidate-sub">
-                        {count}球 / {percentage:.1f}%
+                        {count}球 /
+                        {percentage:.1f}%
                     </div>
+
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1335,20 +1879,26 @@ else:
 
 
 # =========================================================
-# Location tendency by pitch type
+# Pitch type location tendency
 # =========================================================
 
-st.subheader("球種別コース分布")
+st.subheader(
+    "球種別コース分布"
+)
+
 
 pitch_types = sorted(
     [
         x
-        for x in base["PitchType"]
-        .dropna()
-        .unique()
+        for x in (
+            base["PitchType"]
+            .dropna()
+            .unique()
+        )
         if clean_text(x)
     ]
 )
+
 
 if not pitch_types:
 
@@ -1358,62 +1908,76 @@ if not pitch_types:
 
 else:
 
-    selected_analysis_type = st.selectbox(
-        "球種",
-        pitch_types,
-        key="analysis_pitch_type",
+    selected_analysis_type = (
+        st.selectbox(
+            "球種",
+            pitch_types,
+            key="analysis_pitch_type",
+        )
     )
+
 
     location_df = base[
         base["PitchType"]
         == selected_analysis_type
     ].copy()
 
+
     zone_counts = (
-        location_df["ActualZone"]
+        location_df[
+            "ActualZone"
+        ]
         .value_counts()
         .reindex(
             ZONE_ORDER,
-            fill_value=0
+            fill_value=0,
         )
     )
 
-    zone_total = zone_counts.sum()
 
-    # -----------------------------------------------------
-    # 9 zone display
-    # -----------------------------------------------------
+    zone_total = int(
+        zone_counts.sum()
+    )
 
-    location_rows = []
 
-    for row_index in range(3):
+    for row in ZONE_GRID:
 
-        cols = st.columns(3)
+        cols = st.columns(
+            3,
+            gap="small",
+            vertical_alignment="center",
+            wrap=False,
+        )
 
-        for col_index in range(3):
 
-            zone = ZONE_GRID[
-                row_index
-            ][col_index][0]
-
-            label = ZONE_GRID[
-                row_index
-            ][col_index][1]
+        for col, (
+            zone,
+            label,
+        ) in zip(
+            cols,
+            row,
+        ):
 
             count = int(
                 zone_counts.get(
                     zone,
-                    0
+                    0,
                 )
             )
 
+
             percentage = (
-                count / zone_total * 100
-                if zone_total > 0
+                count
+                /
+                zone_total
+                *
+                100
+                if zone_total
                 else 0
             )
 
-            with cols[col_index]:
+
+            with col:
 
                 st.metric(
                     label,
@@ -1423,18 +1987,22 @@ else:
 
 
 # =========================================================
-# iPitch actual input
+# iPitch input
 # =========================================================
 
 st.divider()
+
 
 st.subheader(
     "iPitchで指定した球を記録"
 )
 
+
 st.markdown(
-    "**① 球種を選択 → ② コースを3×3からタップ → "
-    "③ iPitchに入力 → ④ 実際の結果をタップ**"
+    """
+    **① 球種を選択 → ② コースを3×3からタップ
+    → ③ iPitchに入力 → ④ 実際の結果をタップ**
+    """
 )
 
 
@@ -1460,10 +2028,13 @@ else:
 
 
 # =========================================================
-# 3x3 Zone
+# 3x3 pitch zone
 # =========================================================
 
-st.markdown("**コース**")
+st.markdown(
+    "**コース**"
+)
+
 
 with st.container(
     border=True,
@@ -1474,8 +2045,11 @@ with st.container(
 
         cols = st.columns(
             3,
-            gap="small"
+            gap="small",
+            vertical_alignment="center",
+            wrap=False,
         )
+
 
         for col, (
             zone_value,
@@ -1489,8 +2063,10 @@ with st.container(
 
                 is_selected = (
                     st.session_state.selected_zone
-                    == zone_value
+                    ==
+                    zone_value
                 )
+
 
                 if is_selected:
 
@@ -1504,9 +2080,13 @@ with st.container(
                         zone_label
                     )
 
+
                 if st.button(
                     button_label,
-                    key=f"zone_{zone_value}",
+                    key=(
+                        f"zone_"
+                        f"{zone_value}"
+                    ),
                     use_container_width=True,
                 ):
 
@@ -1516,13 +2096,16 @@ with st.container(
 
                     st.rerun()
 
+
     st.markdown(
         f"""
         <div class="selected-zone-label">
             選択中：
-            {ZONE_NAME_MAP[
-                st.session_state.selected_zone
-            ]}
+            {
+                ZONE_NAME_MAP[
+                    st.session_state.selected_zone
+                ]
+            }
         </div>
         """,
         unsafe_allow_html=True,
@@ -1531,7 +2114,7 @@ with st.container(
 
 st.caption(
     "選択した球種・コースをiPitchへ入力してから、"
-    "実際の投球結果を下からタップしてください。"
+    "実際の投球結果をタップしてください。"
 )
 
 
@@ -1539,21 +2122,39 @@ st.caption(
 # Pitch summary
 # =========================================================
 
-st.markdown("### 今回の指定")
+st.markdown(
+    "### 今回の指定"
+)
 
-summary_col1, summary_col2 = st.columns(2)
+
+summary_col1, summary_col2 = (
+    st.columns(2)
+)
+
 
 with summary_col1:
 
     st.info(
-        f"**球種**\n\n{selected_type}"
+        f"""
+        **球種**
+
+        {selected_type}
+        """
     )
+
 
 with summary_col2:
 
     st.info(
-        f"**コース**\n\n"
-        f"{ZONE_NAME_MAP[st.session_state.selected_zone]}"
+        f"""
+        **コース**
+
+        {
+            ZONE_NAME_MAP[
+                st.session_state.selected_zone
+            ]
+        }
+        """
     )
 
 
@@ -1561,50 +2162,90 @@ with summary_col2:
 # Result input
 # =========================================================
 
-st.markdown("### 実際の投球結果")
+st.markdown(
+    "### 実際の投球結果"
+)
+
 
 result_options = [
-    ("BallCalled", "ボール"),
-    ("StrikeCalled", "見逃しストライク"),
-    ("StrikeSwinging", "空振り"),
-    ("FoulBall", "ファウル"),
-    ("InPlay", "インプレー"),
-    ("HitByPitch", "死球"),
+    (
+        "BallCalled",
+        "ボール",
+    ),
+    (
+        "StrikeCalled",
+        "見逃しストライク",
+    ),
+    (
+        "StrikeSwinging",
+        "空振り",
+    ),
+    (
+        "FoulBall",
+        "ファウル",
+    ),
+    (
+        "InPlay",
+        "インプレー",
+    ),
+    (
+        "HitByPitch",
+        "死球",
+    ),
 ]
 
 
 result_cols = st.columns(3)
 
+
 for i, (
     result_value,
     result_text,
-) in enumerate(result_options):
+) in enumerate(
+    result_options
+):
 
-    with result_cols[i % 3]:
+    with result_cols[
+        i % 3
+    ]:
 
         if st.button(
             result_text,
-            key=f"result_{result_value}",
+            key=(
+                f"result_"
+                f"{result_value}"
+            ),
             use_container_width=True,
         ):
 
-            # ---------------------------------------------
-            # 履歴に追加
-            # ---------------------------------------------
+            # =============================================
+            # 履歴保存
+            # =============================================
 
             st.session_state.pitch_history.append(
                 {
                     "球種": selected_type,
-                    "コース": st.session_state.selected_zone,
+
+                    "コース": (
+                        st.session_state.selected_zone
+                    ),
+
                     "結果": result_value,
-                    "Balls": st.session_state.balls,
-                    "Strikes": st.session_state.strikes,
+
+                    "Balls": (
+                        st.session_state.balls
+                    ),
+
+                    "Strikes": (
+                        st.session_state.strikes
+                    ),
                 }
             )
 
-            # ---------------------------------------------
+
+            # =============================================
             # カウント更新
-            # ---------------------------------------------
+            # =============================================
 
             (
                 next_balls,
@@ -1616,19 +2257,27 @@ for i, (
                 result_value,
             )
 
-            # ---------------------------------------------
+
+            # =============================================
             # 打席終了
-            # ---------------------------------------------
+            # =============================================
 
             if pa_finished:
 
                 st.session_state.balls = 0
+
                 st.session_state.strikes = 0
+
                 st.session_state.pitch_history = []
 
-            # ---------------------------------------------
-            # 継続
-            # ---------------------------------------------
+                st.session_state.selected_zone = (
+                    "Middle-Middle"
+                )
+
+
+            # =============================================
+            # 打席継続
+            # =============================================
 
             else:
 
@@ -1639,6 +2288,7 @@ for i, (
                 st.session_state.strikes = (
                     next_strikes
                 )
+
 
             st.rerun()
 
@@ -1651,11 +2301,14 @@ if st.session_state.pitch_history:
 
     st.divider()
 
+
     st.subheader(
         "この打席の配球履歴"
     )
 
+
     history_rows = []
+
 
     for i, item in enumerate(
         st.session_state.pitch_history,
@@ -1665,24 +2318,35 @@ if st.session_state.pitch_history:
         history_rows.append(
             {
                 "球": i,
+
                 "カウント": (
-                    f"{item['Balls']}-"
+                    f"{item['Balls']}"
+                    "-"
                     f"{item['Strikes']}"
                 ),
-                "球種": item["球種"],
-                "コース": ZONE_NAME_MAP.get(
-                    item["コース"],
-                    item["コース"],
+
+                "球種": item[
+                    "球種"
+                ],
+
+                "コース": (
+                    ZONE_NAME_MAP.get(
+                        item["コース"],
+                        item["コース"],
+                    )
                 ),
+
                 "結果": result_label(
                     item["結果"]
                 ),
             }
         )
 
+
     history_df = pd.DataFrame(
         history_rows
     )
+
 
     st.dataframe(
         history_df,
@@ -1699,9 +2363,11 @@ if not candidates.empty:
 
     st.divider()
 
+
     st.subheader(
         "候補球の根拠データ"
     )
+
 
     show_cols = [
         "GameID",
@@ -1716,11 +2382,13 @@ if not candidates.empty:
         "PlayResult",
     ]
 
+
     show_cols = [
         col
         for col in show_cols
         if col in candidates.columns
     ]
+
 
     st.dataframe(
         candidates[
