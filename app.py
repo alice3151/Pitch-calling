@@ -1822,60 +1822,44 @@ else:
         ).round(1)
 
 
-        for rank, (
-            _,
-            row,
-        ) in enumerate(
-            candidate_pairs.head(
-                10
-            ).iterrows(),
-            start=1,
-        ):
+for rank, (
+    _,
+    row,
+) in enumerate(
+    candidate_pairs.head(10).iterrows(),
+    start=1,
+):
 
-            pitch_type = clean_text(
-                row["PitchType"]
-            )
+    pitch_type = clean_text(
+        row["PitchType"]
+    )
 
-            zone = clean_text(
-                row["ActualZone"]
-            )
+    zone = clean_text(
+        row["ActualZone"]
+    )
 
-            zone_label = (
-                ZONE_NAME_MAP.get(
-                    zone,
-                    zone,
-                )
-            )
+    zone_label = ZONE_NAME_MAP.get(
+        zone,
+        zone,
+    )
 
-            count = int(
-                row["投球数"]
-            )
+    count = int(
+        row["投球数"]
+    )
 
-            percentage = float(
-                row["割合"]
-            )
+    percentage = float(
+        row["割合"]
+    )
 
+    st.markdown(
+        f"### {rank}. {pitch_type} × {zone_label}"
+    )
 
-            st.markdown(
-                f"""
-                <div class="candidate-card">
+    st.caption(
+        f"{count}球 / {percentage:.1f}%"
+    )
 
-                    <div class="candidate-main">
-                        {rank}.
-                        {pitch_type}
-                        ×
-                        {zone_label}
-                    </div>
-
-                    <div class="candidate-sub">
-                        {count}球 /
-                        {percentage:.1f}%
-                    </div>
-
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    st.divider()
 
 
 # =========================================================
